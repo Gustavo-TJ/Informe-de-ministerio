@@ -3,12 +3,62 @@ import pandas as pd
 import datetime
 import io
 
-# Configuración de la página (El nombre en la pestaña/móvil)
+# Configuración de la página
 st.set_page_config(
     page_title="Informe de Predicación",
     page_icon="📋",
     layout="wide"
 )
+
+# --- ESTILOS VISUALES PERSONALIZADOS (CSS) ---
+st.markdown("""
+    <style>
+    /* Estilo de la barra lateral */
+    [data-testid="stSidebar"] {
+        background-color: #F8FAFC;
+        border-right: 2px solid #DBEAFE;
+    }
+    
+    /* Títulos principales */
+    h1 {
+        color: #1E3A8A !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Subtítulos de secciones */
+    h2, h3 {
+        color: #1D4ED8 !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Contenedores de tarjetas de métricas (Resumen) */
+    [data-testid="stMetricValue"] {
+        color: #1E40AF !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Resaltar tabla editable de entrada de datos */
+    [data-testid="stDataEditor"] {
+        background-color: #F0F4F8;
+        border-radius: 10px;
+        padding: 8px;
+        border: 1px solid #BFDBFE;
+    }
+    
+    /* Botón de descarga destacado */
+    div.stDownloadButton > button {
+        background-color: #2563EB !important;
+        color: white !important;
+        font-weight: bold !important;
+        border-radius: 8px !important;
+        border: none !important;
+        padding: 0.5rem 1rem !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #1D4ED8 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Mapeo de meses del año de servicio (Septiembre a Agosto)
 meses = ['Septiembre', 'Octubre', 'Noviembre', 'Diciembre', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto']
@@ -88,7 +138,7 @@ st.caption("Año de Servicio 2025 - 2026 (Septiembre 2025 – Agosto 2026)")
 # --- EDITOR DE DATOS DEL MES ACTIVO ---
 st.subheader(f"📅 Registro Diario de Actividad: {mes_activo}")
 
-# Renderizamos la tabla primero para capturar la edición instantánea del usuario
+# Renderizado de la tabla editable
 df_mes_original = st.session_state.data[mes_activo]
 df_edited = st.data_editor(
     df_mes_original,
@@ -105,7 +155,7 @@ df_edited = st.data_editor(
     key=f"editor_{mes_activo}"
 )
 
-# Guardamos inmediatamente la tabla actualizada en la sesión activa
+# Guardar la información en vivo en la sesión activa
 st.session_state.data[mes_activo] = df_edited
 
 # --- CÁLCULO Y DASHBOARD DEL MES ACTIVO (EN TIEMPO REAL) ---
@@ -117,14 +167,14 @@ horas_acumuladas_mes = horas_mes_decimal + st.session_state.carryover[mes_activo
 meta_mes = st.session_state.goals[mes_activo]
 diferencia_mes = horas_acumuladas_mes - meta_mes
 
-estudios_texto = " ".join(df_edited['Estudios / Personas'].dropna().astype(str))
-nombres_estudiantes = [n.strip() for n in estudios_texto.replace(',', '\n').split('\n') if n.strip()]
-total_estudiantes = len(set(nombres_estudiantes))
+# Cuentan directamente las casillas con información/texto ingresado
+estudios_serie = df_edited['Estudios / Personas'].astype(str).str.strip()
+total_estudiantes = (estudios_serie != '').sum()
 
 tot_h = int(horas_mes_decimal)
 tot_m = int(round((horas_mes_decimal - tot_h) * 60))
 
-# Muestra del Dashboard Resumen del Mes
+# Resumen del Mes
 st.markdown("---")
 st.subheader(f"📊 Resumen del Mes: {mes_activo}")
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -174,8 +224,8 @@ for m in meses:
     tot = h_m + c_o
     g = st.session_state.goals[m]
     
-    e_txt = " ".join(df['Estudios / Personas'].dropna().astype(str))
-    n_est = len(set([n.strip() for n in e_txt.replace(',', '\n').split('\n') if n.strip()]))
+    e_ser = df['Estudios / Personas'].astype(str).str.strip()
+    n_est = (e_ser != '').sum()
     
     resumen_anual.append({
         "Mes": m,
