@@ -85,6 +85,57 @@ if nombre_publicador.strip():
     st.subheader(f"Publicador: {nombre_publicador}")
 st.caption("Año de Servicio 2025 - 2026 (Septiembre 2025 – Agosto 2026)")
 
+# --- EDITOR DE DATOS DEL MES ACTIVO ---
+st.subheader(f"📅 Registro Diario de Actividad: {mes_activo}")
+
+# Renderizamos la tabla primero para capturar la edición instantánea del usuario
+df_mes_original = st.session_state.data[mes_activo]
+df_edited = st.data_editor(
+    df_mes_original,
+    num_rows="fixed",
+    column_config={
+        "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
+        "Horas": st.column_config.NumberColumn("Horas", min_value=0, max_value=24, step=1, format="%d h"),
+        "Minutos": st.column_config.NumberColumn("Minutos", min_value=0, max_value=59, step=5, format="%d m"),
+        "Estudios / Personas": st.column_config.TextColumn("Estudios Bíblicos / Nombres", width="medium"),
+        "Notas": st.column_config.TextColumn("Notas Adicionales", width="large")
+    },
+    hide_index=True,
+    use_container_width=True,
+    key=f"editor_{mes_activo}"
+)
+
+# Guardamos inmediatamente la tabla actualizada en la sesión activa
+st.session_state.data[mes_activo] = df_edited
+
+# --- CÁLCULO Y DASHBOARD DEL MES ACTIVO (EN TIEMPO REAL) ---
+h_series = pd.to_numeric(df_edited['Horas'], errors='coerce').fillna(0)
+m_series = pd.to_numeric(df_edited['Minutos'], errors='coerce').fillna(0)
+horas_mes_decimal = (h_series + (m_series / 60.0)).sum()
+
+horas_acumuladas_mes = horas_mes_decimal + st.session_state.carryover[mes_activo]
+meta_mes = st.session_state.goals[mes_activo]
+diferencia_mes = horas_acumuladas_mes - meta_mes
+
+estudios_texto = " ".join(df_edited['Estudios / Personas'].dropna().astype(str))
+nombres_estudiantes = [n.strip() for n in estudios_texto.replace(',', '\n').split('\n') if n.strip()]
+total_estudiantes = len(set(nombres_estudiantes))
+
+tot_h = int(horas_mes_decimal)
+tot_m = int(round((horas_mes_decimal - tot_h) * 60))
+
+# Muestra del Dashboard Resumen del Mes
+st.markdown("---")
+st.subheader(f"📊 Resumen del Mes: {mes_activo}")
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("Horas del Mes", f"{tot_h}h {tot_m}m")
+col2.metric("Suma con Mes Ant.", f"{horas_acumuladas_mes:.2f} hrs")
+col3.metric("Meta del Mes", f"{meta_mes:.0f} hrs")
+col4.metric("Diferencia Mes", f"{diferencia_mes:+.2f} hrs", delta_color="normal" if diferencia_mes >= 0 else "inverse")
+col5.metric("Estudios Bíblicos", f"{total_estudiantes}")
+
+st.progress(min(max(horas_acumuladas_mes / meta_mes if meta_mes > 0 else 0.0, 0.0), 1.0))
+
 # --- CÁLCULO GENERAL DEL AÑO Y META ANUAL (600 HORAS) ---
 total_horas_anuales = 0.0
 for m, df in st.session_state.data.items():
@@ -97,6 +148,7 @@ faltante_anual = meta_anual - total_horas_anuales
 porcentaje_anual = min(max(total_horas_anuales / meta_anual, 0.0), 1.0)
 
 # Panel de Meta Anual (600 hrs)
+st.markdown("---")
 st.subheader("🎯 Progreso Anual del Precursor (Meta: 600 hrs)")
 col_a1, col_a2, col_a3 = st.columns(3)
 tot_h_anual = int(total_horas_anuales)
@@ -107,55 +159,6 @@ col_a2.metric("Restantes para las 600h", f"{max(0.0, faltante_anual):.2f} hrs" i
 col_a3.metric("Porcentaje del Año", f"{porcentaje_anual * 100:.1f}%")
 
 st.progress(porcentaje_anual)
-
-st.markdown("---")
-
-# --- CÁLCULO Y VISTA DEL MES ACTIVO ---
-df_mes = st.session_state.data[mes_activo]
-
-h_series = pd.to_numeric(df_mes['Horas'], errors='coerce').fillna(0)
-m_series = pd.to_numeric(df_mes['Minutos'], errors='coerce').fillna(0)
-horas_mes_decimal = (h_series + (m_series / 60.0)).sum()
-
-horas_acumuladas_mes = horas_mes_decimal + st.session_state.carryover[mes_activo]
-meta_mes = st.session_state.goals[mes_activo]
-diferencia_mes = horas_acumuladas_mes - meta_mes
-
-estudios_texto = " ".join(df_mes['Estudios / Personas'].dropna().astype(str))
-nombres_estudiantes = [n.strip() for n in estudios_texto.replace(',', '\n').split('\n') if n.strip()]
-total_estudiantes = len(set(nombres_estudiantes))
-
-tot_h = int(horas_mes_decimal)
-tot_m = int(round((horas_mes_decimal - tot_h) * 60))
-
-# Dashboard Resumen del Mes
-st.subheader(f"📊 Resumen del Mes: {mes_activo}")
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Horas del Mes", f"{tot_h}h {tot_m}m")
-col2.metric("Suma con Mes Ant.", f"{horas_acumuladas_mes:.2f} hrs")
-col3.metric("Meta del Mes", f"{meta_mes:.0f} hrs")
-col4.metric("Diferencia Mes", f"{diferencia_mes:+.2f} hrs", delta_color="normal" if diferencia_mes >= 0 else "inverse")
-col5.metric("Estudios Bíblicos", f"{total_estudiantes}")
-
-st.progress(min(max(horas_acumuladas_mes / meta_mes if meta_mes > 0 else 0.0, 0.0), 1.0))
-
-# Editor de Datos Diario
-st.subheader(f"📅 Registro Diario de Actividad: {mes_activo}")
-df_edited = st.data_editor(
-    df_mes,
-    num_rows="fixed",
-    column_config={
-        "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
-        "Horas": st.column_config.NumberColumn("Horas", min_value=0, max_value=24, step=1, format="%d h"),
-        "Minutos": st.column_config.NumberColumn("Minutos", min_value=0, max_value=59, step=5, format="%d m"),
-        "Estudios / Personas": st.column_config.TextColumn("Estudios Bíblicos / Nombres", width="medium"),
-        "Notas": st.column_config.TextColumn("Notas Adicionales", width="large")
-    },
-    hide_index=True,
-    use_container_width=True
-)
-
-st.session_state.data[mes_activo] = df_edited
 
 # Tabla de Resumen Anual
 st.markdown("---")
@@ -198,7 +201,6 @@ def to_excel():
             st.session_state.data[m].to_excel(writer, sheet_name=m, index=False)
     return output.getvalue()
 
-# Construcción dinámica del nombre del archivo según el publicador
 nombre_limpio = nombre_publicador.strip().replace(" ", "_") if nombre_publicador.strip() else "Publicador"
 file_name_output = f"Informe_Predicacion_{nombre_limpio}_2025_2026.xlsx"
 
