@@ -31,13 +31,13 @@ st.markdown("""
         font-weight: 600 !important;
     }
     
-    /* Contenedores de tarjetas de métricas (Resumen) */
+    /* Contenedores de tarjetas de métricas */
     [data-testid="stMetricValue"] {
         color: #1E40AF !important;
         font-weight: 700 !important;
     }
     
-    /* Resaltar tabla editable de entrada de datos */
+    /* Resaltar tabla editable */
     [data-testid="stDataEditor"] {
         background-color: #F0F4F8;
         border-radius: 10px;
@@ -45,7 +45,7 @@ st.markdown("""
         border: 1px solid #BFDBFE;
     }
     
-    /* Botón de descarga destacado */
+    /* Botón de descarga */
     div.stDownloadButton > button {
         background-color: #2563EB !important;
         color: white !important;
@@ -95,7 +95,6 @@ if 'data' not in st.session_state:
 # --- BARRA LATERAL ---
 st.sidebar.header("👤 Perfil del Publicador")
 
-# Campo para ingresar el nombre del publicador
 nombre_publicador = st.sidebar.text_input("Nombre del Publicador", value="", placeholder="Ej. Juan Pérez")
 
 uploaded_file = st.sidebar.file_uploader("Cargar archivo Excel de respaldo", type=["xlsx"])
@@ -104,7 +103,12 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(uploaded_file)
         for sheet in xls.sheet_names:
             if sheet in meses:
-                st.session_state.data[sheet] = pd.read_excel(uploaded_file, sheet_name=sheet)
+                df_cargado = pd.read_excel(uploaded_file, sheet_name=sheet)
+                df_cargado['Horas'] = pd.to_numeric(df_cargado['Horas'], errors='coerce').fillna(0).astype(int)
+                df_cargado['Minutos'] = pd.to_numeric(df_cargado['Minutos'], errors='coerce').fillna(0).astype(int)
+                df_cargado['Estudios / Personas'] = df_cargado['Estudios / Personas'].fillna('').astype(str)
+                df_cargado['Notas'] = df_cargado['Notas'].fillna('').astype(str)
+                st.session_state.data[sheet] = df_cargado
         st.sidebar.success("¡Tus datos se cargaron correctamente!")
     except Exception as e:
         st.sidebar.error("Error al leer el archivo Excel.")
@@ -138,7 +142,6 @@ st.caption("Año de Servicio 2025 - 2026 (Septiembre 2025 – Agosto 2026)")
 # --- EDITOR DE DATOS DEL MES ACTIVO ---
 st.subheader(f"📅 Registro Diario de Actividad: {mes_activo}")
 
-# Renderizado de la tabla editable
 df_mes_original = st.session_state.data[mes_activo]
 df_edited = st.data_editor(
     df_mes_original,
@@ -155,24 +158,21 @@ df_edited = st.data_editor(
     key=f"editor_{mes_activo}"
 )
 
-# Guardar la información en vivo en la sesión activa
 st.session_state.data[mes_activo] = df_edited
 
-# --- CÁLCULO Y DASHBOARD DEL MES ACTIVO (EN TIEMPO REAL) ---
+# --- CÁLCULO Y DASHBOARD DEL MES ACTIVO ---
 h_series = pd.to_numeric(df_edited['Horas'], errors='coerce').fillna(0)
 m_series = pd.to_numeric(df_edited['Minutos'], errors='coerce').fillna(0)
-horas_mes_decimal = (h_series + (m_series / 60.0)).sum()
+total_minutos_mes = int((h_series * 60 + m_series).sum())
+tot_h, tot_m = divmod(total_minutos_mes, 60)
+horas_mes_decimal = total_minutos_mes / 60.0
 
 horas_acumuladas_mes = horas_mes_decimal + st.session_state.carryover[mes_activo]
 meta_mes = st.session_state.goals[mes_activo]
 diferencia_mes = horas_acumuladas_mes - meta_mes
 
-# Cuentan directamente las casillas con información/texto ingresado
 estudios_serie = df_edited['Estudios / Personas'].astype(str).str.strip()
 total_estudiantes = (estudios_serie != '').sum()
-
-tot_h = int(horas_mes_decimal)
-tot_m = int(round((horas_mes_decimal - tot_h) * 60))
 
 # Resumen del Mes
 st.markdown("---")
@@ -186,23 +186,23 @@ col5.metric("Estudios Bíblicos", f"{total_estudiantes}")
 
 st.progress(min(max(horas_acumuladas_mes / meta_mes if meta_mes > 0 else 0.0, 0.0), 1.0))
 
-# --- CÁLCULO GENERAL DEL AÑO Y META ANUAL (600 HORAS) ---
-total_horas_anuales = 0.0
+# --- CÁLCULO GENERAL DEL AÑO Y META ANUAL ---
+total_minutos_anuales = 0
 for m, df in st.session_state.data.items():
     h_s = pd.to_numeric(df['Horas'], errors='coerce').fillna(0)
     m_s = pd.to_numeric(df['Minutos'], errors='coerce').fillna(0)
-    total_horas_anuales += (h_s + (m_s / 60.0)).sum()
+    total_minutos_anuales += int((h_s * 60 + m_s).sum())
 
+total_horas_anuales = total_minutos_anuales / 60.0
 meta_anual = 600.0
 faltante_anual = meta_anual - total_horas_anuales
 porcentaje_anual = min(max(total_horas_anuales / meta_anual, 0.0), 1.0)
 
-# Panel de Meta Anual (600 hrs)
+# Panel de Meta Anual
 st.markdown("---")
 st.subheader("🎯 Progreso Anual del Precursor (Meta: 600 hrs)")
 col_a1, col_a2, col_a3 = st.columns(3)
-tot_h_anual = int(total_horas_anuales)
-tot_m_anual = int(round((total_horas_anuales - tot_h_anual) * 60))
+tot_h_anual, tot_m_anual = divmod(total_minutos_anuales, 60)
 
 col_a1.metric("Horas Totales Acumuladas", f"{tot_h_anual}h {tot_m_anual}m")
 col_a2.metric("Restantes para las 600h", f"{max(0.0, faltante_anual):.2f} hrs" if faltante_anual > 0 else "¡Meta Anual Alcanzada!")
@@ -219,7 +219,10 @@ for m in meses:
     df = st.session_state.data[m]
     h_s = pd.to_numeric(df['Horas'], errors='coerce').fillna(0)
     m_s = pd.to_numeric(df['Minutos'], errors='coerce').fillna(0)
-    h_m = (h_s + (m_s / 60.0)).sum()
+    m_tot = int((h_s * 60 + m_s).sum())
+    h_m = m_tot / 60.0
+    th, tm = divmod(m_tot, 60)
+    
     c_o = st.session_state.carryover[m]
     tot = h_m + c_o
     g = st.session_state.goals[m]
@@ -229,7 +232,7 @@ for m in meses:
     
     resumen_anual.append({
         "Mes": m,
-        "Horas Mes": f"{int(h_m)}h {int(round((h_m - int(h_m))*60))}m",
+        "Horas Mes": f"{th}h {tm}m",
         "Viene Mes Ant.": c_o,
         "Total Mes": round(tot, 2),
         "Meta Mes": g,
