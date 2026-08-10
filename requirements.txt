@@ -1,4 +1,6 @@
-﻿streamlit
+streamlit
 pandas
 openpyxl
 xlsxwriter
+reportlab
+streamlit-javascript
