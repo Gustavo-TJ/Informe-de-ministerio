@@ -5,7 +5,7 @@ import io
 import json
 from streamlit_javascript import st_javascript
 
-# Importaciones para generar el PDF listo para imprimir
+# Importaciones de ReportLab para el PDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
@@ -35,6 +35,13 @@ st.markdown("""
 meses = ['Septiembre', 'Octubre', 'Noviembre', 'Diciembre', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto']
 
 hoy = datetime.date.today()
+
+# Lógica para determinar el año de inicio del servicio (Septiembre - Agosto)
+if hoy.month >= 9:
+    start_year_default = hoy.year
+else:
+    start_year_default = hoy.year - 1
+
 meses_nombres = {
     9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
     1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -42,8 +49,8 @@ meses_nombres = {
 }
 mes_actual_default = meses_nombres.get(hoy.month, 'Septiembre')
 
-def crear_df_mes_vacio(mes, index_mes):
-    year = 2025 if index_mes < 4 else 2026
+def crear_df_mes_vacio(mes, index_mes, start_year):
+    year = start_year if index_mes < 4 else start_year + 1
     month_idx = ((index_mes + 8) % 12) + 1
     num_days = pd.Period(f'{year}-{month_idx:02d}').days_in_month
     dates = [f"{year}-{month_idx:02d}-{d:02d}" for d in range(1, num_days + 1)]
@@ -57,37 +64,54 @@ def crear_df_mes_vacio(mes, index_mes):
 
 # --- PERSISTENCIA CON LOCALSTORAGE ---
 LOCAL_STORAGE_KEY = "informe_predicacion_local_data"
-
-# Obtener datos guardados del navegador
 raw_local_data = st_javascript(f"localStorage.getItem('{LOCAL_STORAGE_KEY}')")
 
-# Inicializar st.session_state si no está listo
 if 'data' not in st.session_state:
     st.session_state.nombre_publicador = ""
+    st.session_state.service_year = start_year_default
     st.session_state.carryover = {mes: 0.0 for mes in meses}
     st.session_state.goals = {mes: 50.0 for mes in meses}
-    st.session_state.data = {mes: crear_df_mes_vacio(mes, i) for i, mes in enumerate(meses)}
+    st.session_state.data = {mes: crear_df_mes_vacio(mes, i, start_year_default) for i, mes in enumerate(meses)}
     st.session_state.loaded_from_storage = False
 
-# Cargar datos desde localStorage al iniciar
 if raw_local_data and not st.session_state.loaded_from_storage:
     try:
         saved_data = json.loads(raw_local_data)
-        st.session_state.nombre_publicador = saved_data.get("nombre_publicador", "")
-        st.session_state.carryover = saved_data.get("carryover", {mes: 0.0 for mes in meses})
-        st.session_state.goals = saved_data.get("goals", {mes: 50.0 for mes in meses})
+        saved_year = saved_data.get("service_year", start_year_default)
         
-        for mes in meses:
-            if mes in saved_data.get("tables", {}):
-                st.session_state.data[mes] = pd.DataFrame(saved_data["tables"][mes])
+        # Detección de Nuevo Año de Servicio (Septiembre)
+        if start_year_default > saved_year:
+            st.session_state.service_year = start_year_default
+            st.session_state.nombre_publicador = saved_data.get("nombre_publicador", "")
+            st.session_state.carryover = {mes: 0.0 for mes in meses}
+            st.session_state.goals = {mes: 50.0 for mes in meses}
+            st.session_state.data = {mes: crear_df_mes_vacio(mes, i, start_year_default) for i, mes in enumerate(meses)}
+            st.toast("✨ ¡Nuevo Año de Servicio iniciado automáticamente!", icon="🎉")
+        else:
+            st.session_state.service_year = saved_year
+            st.session_state.nombre_publicador = saved_data.get("nombre_publicador", "")
+            st.session_state.carryover = saved_data.get("carryover", {mes: 0.0 for mes in meses})
+            st.session_state.goals = saved_data.get("goals", {mes: 50.0 for mes in meses})
+            
+            for i, mes in enumerate(meses):
+                if mes in saved_data.get("tables", {}):
+                    df_s = pd.DataFrame(saved_data["tables"][mes])
+                    # Reconstrucción de fechas por si cambia el mes/año
+                    vac = crear_df_mes_vacio(mes, i, saved_year)
+                    if len(df_s) == len(vac):
+                        df_s['Fecha'] = vac['Fecha']
+                    st.session_state.data[mes] = df_s
+                else:
+                    st.session_state.data[mes] = crear_df_mes_vacio(mes, i, saved_year)
+                    
         st.session_state.loaded_from_storage = True
         st.rerun()
     except Exception:
         pass
 
 def guardar_en_dispositivo():
-    """Serializa la información y la guarda en el localStorage del navegador del celular."""
     data_to_save = {
+        "service_year": st.session_state.get("service_year", start_year_default),
         "nombre_publicador": st.session_state.get("nombre_publicador", ""),
         "carryover": st.session_state.get("carryover", {}),
         "goals": st.session_state.get("goals", {}),
@@ -97,7 +121,6 @@ def guardar_en_dispositivo():
         data_to_save["tables"][mes] = df.to_dict(orient="records")
     
     json_str = json.dumps(data_to_save, ensure_ascii=False)
-    # Escapar comillas para ejecutar en JS
     json_escaped = json_str.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "")
     st_javascript(f"localStorage.setItem('{LOCAL_STORAGE_KEY}', '{json_escaped}')")
 
@@ -126,12 +149,13 @@ if uploaded_file is not None:
                 df_cargado['Notas'] = df_cargado['Notas'].fillna('').astype(str)
                 st.session_state.data[sheet] = df_cargado
         guardar_en_dispositivo()
-        st.sidebar.success("¡Tus datos se cargaron y guardaron en el celular!")
-    except Exception as e:
+        st.sidebar.success("¡Tus datos se cargaron y guardaron!")
+    except Exception:
         st.sidebar.error("Error al leer el archivo Excel.")
 
 st.sidebar.markdown("---")
 
+# Selector con mes actual seleccionado por defecto
 idx_default = meses.index(mes_actual_default) if mes_actual_default in meses else 0
 mes_activo = st.sidebar.selectbox("Selecciona el Mes", meses, index=idx_default)
 
@@ -157,11 +181,24 @@ if val_goal != st.session_state.goals.get(mes_activo, 50.0):
     st.session_state.goals[mes_activo] = val_goal
     guardar_en_dispositivo()
 
+st.sidebar.markdown("---")
+st.sidebar.header("🗑️ Acciones")
+
+# Opción de Borrado de Datos por Mes
+if st.sidebar.button(f"Borrar datos de {mes_activo}", type="secondary", use_container_width=True):
+    i_mes = meses.index(mes_activo)
+    st.session_state.data[mes_activo] = crear_df_mes_vacio(mes_activo, i_mes, st.session_state.service_year)
+    st.session_state.carryover[mes_activo] = 0.0
+    guardar_en_dispositivo()
+    st.sidebar.success(f"¡Datos de {mes_activo} limpiados!")
+    st.rerun()
+
 # --- CABECERA PRINCIPAL ---
+sy = st.session_state.service_year
 st.title("📋 Informe de Predicación")
 if st.session_state.nombre_publicador.strip():
     st.subheader(f"Publicador: {st.session_state.nombre_publicador}")
-st.caption("Año de Servicio 2025 - 2026 (Septiembre 2025 – Agosto 2026)")
+st.caption(f"Año de Servicio {sy} - {sy + 1} (Septiembre {sy} – Agosto {sy + 1})")
 
 # --- EDITOR DE DATOS ---
 st.subheader(f"📅 Registro Diario de Actividad: {mes_activo}")
@@ -281,7 +318,7 @@ def to_excel():
         df_resumen.to_excel(writer, sheet_name="Resumen_Anual", index=False)
     return output.getvalue()
 
-def generar_pdf_planilla(nombre, df_resumen_data, tot_h_a, tot_m_a):
+def generar_pdf_planilla(nombre, df_resumen_data, tot_h_a, tot_m_a, s_year):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
     styles = getSampleStyleSheet()
@@ -294,7 +331,7 @@ def generar_pdf_planilla(nombre, df_resumen_data, tot_h_a, tot_m_a):
 
     story = []
     story.append(Paragraph("<b>INFORME DE SERVICIO DEL PRECURSOR</b>", titulo_style))
-    story.append(Paragraph("Año de Servicio 2025 – 2026 (Septiembre 2025 – Agosto 2026)", subtitulo_style))
+    story.append(Paragraph(f"Año de Servicio {s_year} – {s_year + 1} (Septiembre {s_year} – Agosto {s_year + 1})", subtitulo_style))
     
     nombre_txt = nombre.strip() if nombre.strip() else "No especificado"
     info_text = f"<b>Publicador:</b> {nombre_txt} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Total Horas Acumuladas:</b> {tot_h_a}h {tot_m_a}m / 600h"
@@ -335,8 +372,8 @@ def generar_pdf_planilla(nombre, df_resumen_data, tot_h_a, tot_m_a):
     return buffer.getvalue()
 
 nombre_limpio = st.session_state.nombre_publicador.strip().replace(" ", "_") if st.session_state.nombre_publicador.strip() else "Publicador"
-file_name_excel = f"Informe_Predicacion_{nombre_limpio}_2025_2026.xlsx"
-file_name_pdf = f"Planilla_Impresion_{nombre_limpio}_2025_2026.pdf"
+file_name_excel = f"Informe_Predicacion_{nombre_limpio}_{sy}_{sy+1}.xlsx"
+file_name_pdf = f"Planilla_Impresion_{nombre_limpio}_{sy}_{sy+1}.pdf"
 
 col_exp1, col_exp2 = st.columns(2)
 
@@ -350,7 +387,7 @@ with col_exp1:
     )
 
 with col_exp2:
-    pdf_bytes = generar_pdf_planilla(st.session_state.nombre_publicador, df_resumen, tot_h_anual, tot_m_anual)
+    pdf_bytes = generar_pdf_planilla(st.session_state.nombre_publicador, df_resumen, tot_h_anual, tot_m_anual, sy)
     st.download_button(
         label="📄 Descargar Planilla PDF Listo para Imprimir",
         data=pdf_bytes,
