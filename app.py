@@ -33,6 +33,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 meses = ['Septiembre', 'Octubre', 'Noviembre', 'Diciembre', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto']
+DIAS_ESP = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 hoy = datetime.date.today()
 
@@ -49,11 +50,20 @@ meses_nombres = {
 }
 mes_actual_default = meses_nombres.get(hoy.month, 'Septiembre')
 
+def formatear_fecha_con_dia(year, month_idx, day):
+    """Genera una cadena como 'martes 2' basada en la fecha real."""
+    dt = datetime.date(year, month_idx, day)
+    nombre_dia = DIAS_ESP[dt.weekday()]
+    return f"{nombre_dia} {day}"
+
 def crear_df_mes_vacio(mes, index_mes, start_year):
     year = start_year if index_mes < 4 else start_year + 1
     month_idx = ((index_mes + 8) % 12) + 1
     num_days = pd.Period(f'{year}-{month_idx:02d}').days_in_month
-    dates = [f"{year}-{month_idx:02d}-{d:02d}" for d in range(1, num_days + 1)]
+    
+    # Formato con día en español: 'martes 2'
+    dates = [formatear_fecha_con_dia(year, month_idx, d) for d in range(1, num_days + 1)]
+    
     return pd.DataFrame({
         'Fecha': dates,
         'Horas': [0] * num_days,
@@ -96,7 +106,7 @@ if raw_local_data and not st.session_state.loaded_from_storage:
             for i, mes in enumerate(meses):
                 if mes in saved_data.get("tables", {}):
                     df_s = pd.DataFrame(saved_data["tables"][mes])
-                    # Reconstrucción de fechas por si cambia el mes/año
+                    # Reconstrucción de fechas por si cambia el mes/año o formato
                     vac = crear_df_mes_vacio(mes, i, saved_year)
                     if len(df_s) == len(vac):
                         df_s['Fecha'] = vac['Fecha']
@@ -208,7 +218,7 @@ df_edited = st.data_editor(
     df_mes_original,
     num_rows="fixed",
     column_config={
-        "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
+        "Fecha": st.column_config.TextColumn("Día / Fecha", disabled=True),
         "Horas": st.column_config.NumberColumn("Horas", min_value=0, max_value=24, step=1, format="%d h"),
         "Minutos": st.column_config.NumberColumn("Minutos", min_value=0, max_value=59, step=5, format="%d m"),
         "Estudios / Personas": st.column_config.TextColumn("Estudios Bíblicos / Nombres", width="medium"),
